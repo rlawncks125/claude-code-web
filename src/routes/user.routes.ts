@@ -1,18 +1,12 @@
-// User routes module using Elysia groups
+// User routes - directly call Service static methods (Elysia Best Practice)
 import { Elysia } from "elysia";
-import {
-  CreateUserSchema,
-  UpdateUserSchema,
-  UserIdSchema,
-} from "../models/user.model";
-import type { DatabaseContext } from "../plugins/database.plugin";
+import { UserModel } from "../models/user.model";
+import { UserService } from "../services/user.service";
 
 export const userRoutes = new Elysia({ prefix: "/users" })
   .get(
     "/",
-    async ({ userController }: DatabaseContext) => {
-      return await userController.getAll();
-    },
+    ({ db }) => UserService.getAllUsers(db),
     {
       detail: {
         tags: ["Users"],
@@ -23,11 +17,9 @@ export const userRoutes = new Elysia({ prefix: "/users" })
   )
   .get(
     "/:id",
-    async ({ userController, params }: DatabaseContext & { params: any }) => {
-      return await userController.getById(params.id);
-    },
+    ({ db, params }) => UserService.getUserById(db, params.id),
     {
-      params: UserIdSchema,
+      params: UserModel.params,
       detail: {
         tags: ["Users"],
         summary: "Get user by ID",
@@ -37,11 +29,9 @@ export const userRoutes = new Elysia({ prefix: "/users" })
   )
   .post(
     "/",
-    async ({ userController, body }: DatabaseContext & { body: any }) => {
-      return await userController.create(body);
-    },
+    ({ db, body }) => UserService.createUser(db, body),
     {
-      body: CreateUserSchema,
+      body: UserModel.create,
       detail: {
         tags: ["Users"],
         summary: "Create new user",
@@ -51,16 +41,10 @@ export const userRoutes = new Elysia({ prefix: "/users" })
   )
   .put(
     "/:id",
-    async ({
-      userController,
-      params,
-      body,
-    }: DatabaseContext & { params: any; body: any }) => {
-      return await userController.update(params.id, body);
-    },
+    ({ db, params, body }) => UserService.updateUser(db, params.id, body),
     {
-      params: UserIdSchema,
-      body: UpdateUserSchema,
+      params: UserModel.params,
+      body: UserModel.update,
       detail: {
         tags: ["Users"],
         summary: "Update user",
@@ -70,11 +54,15 @@ export const userRoutes = new Elysia({ prefix: "/users" })
   )
   .delete(
     "/:id",
-    async ({ userController, params }: DatabaseContext & { params: any }) => {
-      return await userController.delete(params.id);
+    ({ db, params }) => {
+      UserService.deleteUser(db, params.id);
+      return {
+        success: true,
+        message: "User deleted successfully",
+      };
     },
     {
-      params: UserIdSchema,
+      params: UserModel.params,
       detail: {
         tags: ["Users"],
         summary: "Delete user",

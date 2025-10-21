@@ -1,69 +1,79 @@
-// User business logic service
+// User service - abstract class pattern (Elysia Best Practice)
+import { status } from "elysia";
 import type { Database } from "bun:sqlite";
-import type {
-  User,
-  CreateUserDTO,
-  UpdateUserDTO,
-} from "../models/user.model";
+import { UserModel } from "../models/user.model";
 
-export class UserService {
-  constructor(private db: Database) {}
-
+// Abstract class - no instance creation needed
+export abstract class UserService {
   /**
    * Get all users
    */
-  getAllUsers(): User[] {
-    const query = this.db.query("SELECT * FROM users ORDER BY created_at DESC");
-    return query.all() as User[];
+  static getAllUsers(db: Database): UserModel.Entity[] {
+    const query = db.query("SELECT * FROM users ORDER BY created_at DESC");
+    return query.all() as UserModel.Entity[];
   }
 
   /**
    * Get user by ID
    */
-  getUserById(id: number): User | null {
-    const query = this.db.query("SELECT * FROM users WHERE id = ?");
-    const user = query.get(id) as User | undefined;
-    return user || null;
+  static getUserById(db: Database, id: number): UserModel.Entity {
+    const query = db.query("SELECT * FROM users WHERE id = ?");
+    const user = query.get(id) as UserModel.Entity | undefined;
+
+    if (!user) {
+      throw status(404, "User not found" satisfies UserModel.NotFound);
+    }
+
+    return user;
   }
 
   /**
    * Get user by email
    */
-  getUserByEmail(email: string): User | null {
-    const query = this.db.query("SELECT * FROM users WHERE email = ?");
-    const user = query.get(email) as User | undefined;
+  static getUserByEmail(
+    db: Database,
+    email: string
+  ): UserModel.Entity | null {
+    const query = db.query("SELECT * FROM users WHERE email = ?");
+    const user = query.get(email) as UserModel.Entity | undefined;
     return user || null;
   }
 
   /**
    * Create new user
    */
-  createUser(data: CreateUserDTO): User {
+  static createUser(db: Database, data: UserModel.Create): UserModel.Entity {
     // Check if email already exists
-    if (this.getUserByEmail(data.email)) {
-      throw new Error("Email already exists");
+    const existingUser = this.getUserByEmail(db, data.email);
+    if (existingUser) {
+      throw status(409, "Email already exists" satisfies UserModel.EmailExists);
     }
 
-    const query = this.db.query(
+    const query = db.query(
       "INSERT INTO users (name, email) VALUES (?, ?) RETURNING *"
     );
-    return query.get(data.name, data.email) as User;
+    return query.get(data.name, data.email) as UserModel.Entity;
   }
 
   /**
    * Update user
    */
-  updateUser(id: number, data: UpdateUserDTO): User {
-    const user = this.getUserById(id);
-    if (!user) {
-      throw new Error("User not found");
-    }
+  static updateUser(
+    db: Database,
+    id: number,
+    data: UserModel.Update
+  ): UserModel.Entity {
+    // Check if user exists
+    const user = this.getUserById(db, id);
 
     // Check email uniqueness if email is being updated
     if (data.email && data.email !== user.email) {
-      const existingUser = this.getUserByEmail(data.email);
+      const existingUser = this.getUserByEmail(db, data.email);
       if (existingUser) {
-        throw new Error("Email already exists");
+        throw status(
+          409,
+          "Email already exists" satisfies UserModel.EmailExists
+        );
       }
     }
 
@@ -84,30 +94,20 @@ export class UserService {
     }
 
     values.push(id);
-    const query = this.db.query(
+    const query = db.query(
       `UPDATE users SET ${updates.join(", ")} WHERE id = ? RETURNING *`
     );
-    return query.get(...values) as User;
+    return query.get(...values) as UserModel.Entity;
   }
 
   /**
    * Delete user
    */
-  deleteUser(id: number): boolean {
-    const user = this.getUserById(id);
-    if (!user) {
-      throw new Error("User not found");
-    }
+  static deleteUser(db: Database, id: number): void {
+    // Check if user exists
+    this.getUserById(db, id);
 
-    const query = this.db.query("DELETE FROM users WHERE id = ?");
+    const query = db.query("DELETE FROM users WHERE id = ?");
     query.run(id);
-    return true;
-  }
-
-  /**
-   * Check if user exists
-   */
-  userExists(id: number): boolean {
-    return this.getUserById(id) !== null;
   }
 }
