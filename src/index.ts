@@ -1,54 +1,60 @@
 // Main application entry point
 import { Elysia } from "elysia";
-import { dbPlugin } from "./plugins/db";
-import { usersRoutes } from "./routes/users";
+// import { swagger } from "@elysiajs/swagger";  // Install with: bun add @elysiajs/swagger
+import { appConfig } from "./config/app";
+import { databasePlugin } from "./plugins/database.plugin";
+import { errorMiddleware } from "./middlewares/error.middleware";
+import { loggerMiddleware } from "./middlewares/logger.middleware";
+import { routes } from "./routes";
 
+// Create main application
 const app = new Elysia()
-  // Use database plugin for dependency injection
-  .use(dbPlugin)
-  // Global error handler
-  .onError(({ code, error, set }) => {
-    console.error(`Error [${code}]:`, error);
-
-    if (code === "VALIDATION") {
-      set.status = 400;
-      return {
-        error: "Validation Error",
-        message: error.message,
-      };
-    }
-
-    if (code === "NOT_FOUND") {
-      set.status = 404;
-      return {
-        error: "Not Found",
-        message: "The requested resource was not found",
-      };
-    }
-
-    set.status = 500;
-    return {
-      error: "Internal Server Error",
-      message: "An unexpected error occurred",
-    };
-  })
-  // Health check endpoint
+  // Add Swagger documentation (uncomment when @elysiajs/swagger is installed)
+  // .use(
+  //   swagger({
+  //     documentation: {
+  //       info: {
+  //         title: "Elysia CRUD API Documentation",
+  //         version: "1.0.0",
+  //         description: "A well-structured CRUD API built with Elysia.js and SQLite",
+  //       },
+  //       tags: [
+  //         { name: "Health", description: "Health check endpoints" },
+  //         { name: "Users", description: "User management endpoints" },
+  //       ],
+  //     },
+  //     path: "/docs",
+  //   })
+  // )
+  // Add middlewares
+  .use(errorMiddleware)
+  .use(loggerMiddleware)
+  // Add database plugin
+  .use(databasePlugin)
+  // Add routes
+  .use(routes)
+  // Root endpoint
   .get("/", () => ({
-    message: "Elysia CRUD API is running!",
+    message: "Welcome to Elysia CRUD API (Best Practice Edition)",
+    version: "1.0.0",
+    endpoints: {
+      health: "/api/v1/health",
+      users: "/api/v1/users",
+    },
     timestamp: new Date().toISOString(),
   }))
-  .get("/health", () => ({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-  }))
-  // Use users routes plugin
-  .use(usersRoutes);
+  // Start server
+  .listen(appConfig.port);
 
-// Start server
-app.listen(process.env.PORT || 3000);
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
-);
+console.log(`
+🦊 Elysia server is running!
 
-// Export for testing
+🌐 Server: http://${app.server?.hostname}:${app.server?.port}
+🔍 Health: http://${app.server?.hostname}:${app.server?.port}/api/v1/health
+👥 Users API: http://${app.server?.hostname}:${app.server?.port}/api/v1/users
+
+Environment: ${appConfig.env}
+`);
+
+// Export app for testing
 export { app };
