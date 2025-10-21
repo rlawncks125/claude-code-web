@@ -1,6 +1,6 @@
-# Elysia.js CRUD API - Best Practice Edition
+# Elysia.js CRUD API - Official Best Practice
 
-Elysia.js Best Practice를 완벽히 적용한 엔터프라이즈급 CRUD API 프로젝트입니다.
+Elysia.js 공식 Best Practice 패턴을 완벽히 적용한 SQLite CRUD API 프로젝트입니다.
 
 ## 프로젝트 구조
 
@@ -9,90 +9,171 @@ src/
 ├── config/              # 애플리케이션 설정
 │   ├── app.ts          # 앱 설정 (포트, CORS 등)
 │   └── database.ts     # 데이터베이스 설정
-├── models/              # 데이터 모델 및 스키마
-│   └── user.model.ts   # User 타입 정의 및 유효성 검증 스키마
-├── services/            # 비즈니스 로직 레이어
-│   └── user.service.ts # User 비즈니스 로직
-├── controllers/         # HTTP 핸들러 레이어
-│   └── user.controller.ts  # User HTTP 핸들러
+├── models/              # 데이터 모델 (namespace 패턴)
+│   └── user.model.ts   # User namespace: 타입, 스키마, 에러 정의
+├── services/            # 비즈니스 로직 (abstract class 패턴)
+│   └── user.service.ts # UserService abstract class (static 메서드)
 ├── middlewares/         # 미들웨어
 │   ├── error.middleware.ts   # 중앙 집중식 에러 핸들링
 │   └── logger.middleware.ts  # 요청 로깅
 ├── plugins/             # Elysia 플러그인
 │   └── database.plugin.ts    # 데이터베이스 의존성 주입
 ├── routes/              # 라우트 모듈
-│   ├── user.routes.ts  # User 라우트
+│   ├── user.routes.ts  # User 라우트 (Service 직접 호출)
 │   └── index.ts        # 라우트 aggregator
-└── index.ts             # 메인 애플리케이션 진입점
+└── index.ts             # 메인 애플리케이션
 ```
 
-## Best Practice 적용 사항
+## Elysia.js 공식 Best Practice 적용
 
-### 1. 계층화 아키텍처 (Layered Architecture)
+### 1. **Namespace Pattern (Models)**
 
-각 레이어는 명확한 책임을 가지고 분리되어 있습니다:
-
-- **Models**: 데이터 구조 및 유효성 검증 스키마 정의
-- **Services**: 비즈니스 로직 처리 (데이터베이스와 독립적)
-- **Controllers**: HTTP 요청/응답 처리
-- **Routes**: 엔드포인트 정의 및 그룹화
-- **Middlewares**: 횡단 관심사 (로깅, 에러 처리)
-- **Plugins**: 재사용 가능한 기능 모듈
-
-### 2. 의존성 주입 (Dependency Injection)
-
+**❌ 잘못된 방법 (NestJS 스타일)**
 ```typescript
-// 플러그인을 통한 의존성 주입
-export const databasePlugin = new Elysia({ name: "database" })
-  .decorate("db", db)
-  .decorate("userService", userService)
-  .decorate("userController", userController);
+export interface CreateUserDTO {
+  name: string;
+  email: string;
+}
+export const CreateUserSchema = t.Object({ ... });
 ```
 
-### 3. 타입 안정성 (Type Safety)
-
-- TypeScript의 강력한 타입 시스템 활용
-- Elysia의 `t` 스키마를 통한 런타임 유효성 검증
-- DTO(Data Transfer Object) 패턴 사용
-
-### 4. 에러 핸들링
-
-중앙 집중식 에러 핸들링으로 일관된 에러 응답:
-
+**✅ Elysia 공식 방법 (Namespace)**
 ```typescript
-{
-  "success": false,
-  "error": "Not Found",
-  "message": "User not found"
+export namespace UserModel {
+  // 스키마 정의
+  export const create = t.Object({
+    name: t.String({ minLength: 1, maxLength: 100 }),
+    email: t.String({ format: "email" }),
+  });
+
+  // 스키마에서 타입 추출
+  export type Create = typeof create.static;
+
+  // 에러 타입도 namespace에 포함
+  export const notFound = t.Literal("User not found");
+  export type NotFound = typeof notFound.static;
 }
 ```
 
-### 5. 라우트 그룹화
+**장점:**
+- 관련된 타입과 스키마를 하나의 namespace로 그룹화
+- `typeof schema.static`으로 자동 타입 추출
+- 모든 User 관련 타입을 한 곳에서 관리
 
-API 버전 관리 및 모듈별 라우트 그룹화:
+### 2. **Abstract Class Pattern (Services)**
 
+**❌ 잘못된 방법 (인스턴스 기반)**
 ```typescript
-export const routes = new Elysia({ prefix: "/api/v1" })
-  .use(userRoutes);
+export class UserService {
+  constructor(private db: Database) {}  // ❌ 인스턴스 생성
+
+  async getUsers() {
+    return this.db.query(...);
+  }
+}
+
+// 사용할 때
+const userService = new UserService(db);  // ❌ 불필요한 할당
 ```
 
-### 6. 미들웨어 패턴
+**✅ Elysia 공식 방법 (Abstract Class)**
+```typescript
+export abstract class UserService {
+  // static 메서드만 사용 - 인스턴스 생성 불필요
+  static getAllUsers(db: Database): UserModel.Entity[] {
+    const query = db.query("SELECT * FROM users");
+    return query.all() as UserModel.Entity[];
+  }
 
-- 요청 로깅
-- 에러 핸들링
-- 인증/인가 (확장 가능)
+  static getUserById(db: Database, id: number): UserModel.Entity {
+    // throw status()로 HTTP 에러 직접 던지기
+    if (!user) {
+      throw status(404, "User not found" satisfies UserModel.NotFound);
+    }
+    return user;
+  }
+}
 
-### 7. 플러그인 시스템
+// 사용할 때
+UserService.getAllUsers(db);  // ✅ 바로 호출, 메모리 효율적
+```
 
-재사용 가능한 기능을 플러그인으로 캡슐화:
+**장점:**
+- 클래스 인스턴스 할당 없음 → 메모리 절약
+- 더 가벼운 런타임
+- `status()` 함수로 타입 안전한 HTTP 에러 처리
+- `satisfies`로 에러 타입 보장
+
+### 3. **No Controller Layer**
+
+**❌ 잘못된 방법 (NestJS 스타일)**
+```typescript
+// Controller가 Service를 감싸는 불필요한 계층
+export class UserController {
+  constructor(private userService: UserService) {}
+
+  async getAll() {
+    return this.userService.getAllUsers();
+  }
+}
+```
+
+**✅ Elysia 공식 방법 (Routes에서 직접 호출)**
+```typescript
+export const userRoutes = new Elysia({ prefix: "/users" })
+  .get("/", ({ db }) => UserService.getAllUsers(db))
+  .get("/:id", ({ db, params }) => UserService.getUserById(db, params.id))
+  .post("/", ({ db, body }) => UserService.createUser(db, body), {
+    body: UserModel.create,  // 스키마 유효성 검증
+  });
+```
+
+**장점:**
+- 불필요한 계층 제거
+- 더 직관적인 코드
+- 의존성 주입 복잡도 감소
+
+### 4. **Simple Plugin (DB Injection Only)**
+
+**❌ 잘못된 방법**
+```typescript
+// Service와 Controller를 모두 주입
+export const databasePlugin = new Elysia()
+  .decorate("db", db)
+  .decorate("userService", new UserService(db))
+  .decorate("userController", new UserController(...));
+```
+
+**✅ Elysia 공식 방법**
+```typescript
+// DB만 주입, Service는 static이므로 주입 불필요
+export const databasePlugin = new Elysia({ name: "database" })
+  .decorate("db", db)
+  .onStop(() => db.close());
+```
+
+**장점:**
+- 플러그인이 단순해짐
+- Service는 abstract class이므로 주입 불필요
+- 메모리 효율성
+
+### 5. **Type-safe Error Handling**
 
 ```typescript
-app
-  .use(errorMiddleware)
-  .use(loggerMiddleware)
-  .use(databasePlugin)
-  .use(routes);
+// Service에서
+if (!user) {
+  throw status(404, "User not found" satisfies UserModel.NotFound);
+}
+
+if (existingUser) {
+  throw status(409, "Email already exists" satisfies UserModel.EmailExists);
+}
 ```
+
+**장점:**
+- `satisfies`로 에러 메시지 타입 검증
+- 컴파일 타임에 에러 메시지 오타 방지
+- Model에 정의된 에러 타입과 일치 보장
 
 ## API 엔드포인트
 
@@ -142,13 +223,6 @@ DELETE /api/v1/users/:id
 
 ## 시작하기
 
-### 설치
-
-```bash
-# 의존성 설치
-bun install
-```
-
 ### 개발 모드
 
 ```bash
@@ -159,127 +233,74 @@ bun run dev
 ### 프로덕션 모드
 
 ```bash
-# 프로덕션 실행
 bun start
 ```
 
-서버는 기본적으로 `http://localhost:3000`에서 실행됩니다.
+## Best Practice 체크리스트
 
-## 환경 변수
+- ✅ **Namespace Pattern**: Model을 namespace로 그룹화
+- ✅ **Abstract Class**: Service는 abstract class + static 메서드
+- ✅ **No Instance Creation**: 클래스 인스턴스 생성 없음
+- ✅ **Direct Service Call**: Routes에서 Service 직접 호출
+- ✅ **Type Extraction**: `typeof schema.static`로 타입 추출
+- ✅ **Type-safe Errors**: `status()` + `satisfies`로 타입 안전 에러
+- ✅ **Simple Plugins**: 필요한 것만 주입
+- ✅ **Memory Efficient**: 불필요한 객체 할당 최소화
 
-`.env` 파일에서 설정 가능:
+## Elysia vs NestJS 패턴 비교
 
-```bash
-# Server
-PORT=3000
-HOST=0.0.0.0
-NODE_ENV=development
+| 항목 | NestJS (❌) | Elysia (✅) |
+|------|------------|-------------|
+| Models | 별도 interface + 별도 schema | Namespace로 그룹화 |
+| Services | Class + 인스턴스 생성 | Abstract class + static |
+| Controllers | 별도 Controller 클래스 | Routes에서 직접 호출 |
+| DI | 복잡한 의존성 주입 | 간단한 플러그인 |
+| 메모리 | 많은 인스턴스 생성 | 최소한의 할당 |
+| 성능 | 무거움 | 가벼움 |
 
-# Database
-DB_PATH=./data.db
+## 확장 예시
 
-# CORS
-CORS_ORIGIN=*
-```
+### 새 리소스 추가 (Posts)
 
-## 사용 예시
-
-### cURL
-
-```bash
-# 사용자 생성
-curl -X POST http://localhost:3000/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"name":"홍길동","email":"hong@example.com"}'
-
-# 모든 사용자 조회
-curl http://localhost:3000/api/v1/users
-
-# 사용자 수정
-curl -X PUT http://localhost:3000/api/v1/users/1 \
-  -H "Content-Type: application/json" \
-  -d '{"name":"김철수"}'
-
-# 사용자 삭제
-curl -X DELETE http://localhost:3000/api/v1/users/1
-```
-
-## 데이터베이스
-
-- **Engine**: SQLite (bun:sqlite)
-- **ORM**: 없음 (네이티브 쿼리 사용)
-- **파일**: `data.db` (프로젝트 루트)
-- **모드**: WAL (Write-Ahead Logging)
-
-### 스키마
-
-```sql
-CREATE TABLE users (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,
-  email TEXT NOT NULL UNIQUE,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-);
-
--- Trigger for updated_at
-CREATE TRIGGER update_user_timestamp
-AFTER UPDATE ON users
-FOR EACH ROW
-BEGIN
-  UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
-```
-
-## 확장 가능성
-
-이 프로젝트 구조는 다음과 같은 기능을 쉽게 추가할 수 있습니다:
-
-### 인증/인가
 ```typescript
-// src/middlewares/auth.middleware.ts
-export const authMiddleware = new Elysia()
-  .onBeforeHandle(({ headers }) => {
-    // JWT 검증 로직
+// 1. Model 정의
+export namespace PostModel {
+  export const create = t.Object({
+    title: t.String(),
+    content: t.String(),
   });
-```
+  export type Create = typeof create.static;
+}
 
-### 추가 리소스
-```typescript
-// src/routes/posts.routes.ts
+// 2. Service 정의
+export abstract class PostService {
+  static getAllPosts(db: Database) {
+    // ...
+  }
+}
+
+// 3. Routes 정의
 export const postRoutes = new Elysia({ prefix: "/posts" })
-  .get("/", ...)
-  .post("/", ...);
-```
+  .get("/", ({ db }) => PostService.getAllPosts(db));
 
-### Swagger 문서화
-```bash
-# Swagger 설치
-bun add @elysiajs/swagger
-
-# src/index.ts에서 주석 해제
+// 4. Routes에 추가
+export const routes = new Elysia({ prefix: "/api/v1" })
+  .use(userRoutes)
+  .use(postRoutes);
 ```
 
 ## 기술 스택
 
 - **Runtime**: Bun
 - **Framework**: Elysia.js
-- **Database**: SQLite
+- **Database**: SQLite (bun:sqlite)
 - **Language**: TypeScript
-- **Validation**: Elysia Type System
+- **Pattern**: Official Elysia Best Practice
 
-## Best Practice 체크리스트
+## 참고 자료
 
-- ✅ 계층화 아키텍처 (Models, Services, Controllers, Routes)
-- ✅ 의존성 주입 패턴
-- ✅ 중앙 집중식 에러 핸들링
-- ✅ 타입 안전성 (TypeScript + Elysia Types)
-- ✅ 모듈화 및 플러그인 시스템
-- ✅ API 버전 관리
-- ✅ 환경 변수 관리
-- ✅ 로깅 미들웨어
-- ✅ 유효성 검증
-- ✅ RESTful API 디자인
+- [Elysia.js Best Practice](https://elysiajs.com/essential/best-practice.html)
+- [Elysia.js Documentation](https://elysiajs.com)
 
 ## 라이선스
 
