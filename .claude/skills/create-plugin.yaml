@@ -1,0 +1,269 @@
+name: create-plugin
+description: Create an Elysia plugin for cross-cutting concerns
+instructions: |
+  Create a plugin to handle lifecycle events and cross-cutting concerns.
+
+  ## What are Plugins?
+
+  Elysia plugins handle:
+  - Logging and monitoring
+  - Error handling
+  - Authentication/Authorization
+  - Request/Response transformation
+  - Database connection injection
+  - CORS, Rate limiting, Caching, etc.
+
+  ## Lifecycle Hooks
+
+  - `onRequest`: Before routing (earliest)
+  - `onBeforeHandle`: After validation, before handler
+  - `onAfterHandle`: After handler, before response
+  - `onError`: When error occurs
+  - `derive`: Add properties to request context
+  - `decorate`: Add global properties to app
+  - `onStop`: When server stops
+
+  ## Steps
+
+  ### 1. Create Plugin File
+
+  Create `src/plugins/{name}.plugin.ts`:
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const myPlugin = new Elysia({ name: "my-plugin" })
+    // Add lifecycle hooks here
+    .derive(/* ... */)
+    .onRequest(/* ... */)
+    .onAfterHandle(/* ... */);
+  ```
+
+  ### 2. Register Plugin
+
+  Add to `src/index.ts`:
+
+  ```typescript
+  import { myPlugin } from "./plugins/my.plugin";
+
+  const app = new Elysia()
+    .use(myPlugin)
+    // ... rest of app
+  ```
+
+  ## Common Plugin Patterns
+
+  ### Logger with Response Time
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const loggerPlugin = new Elysia({ name: "logger" })
+    .derive(({ request }) => ({
+      startTime: Date.now(),
+    }))
+    .onAfterHandle(({ request, path, startTime }) => {
+      const duration = Date.now() - (startTime || Date.now());
+      const timestamp = new Date().toISOString();
+      console.log(
+        `[${timestamp}] ${request.method} ${path} (${duration}ms)`
+      );
+    });
+  ```
+
+  ### Error Handler
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const errorPlugin = new Elysia({ name: "error-handler" })
+    .onError(({ code, error, set }) => {
+      console.error(`❌ Error [${code}]:`, error);
+
+      if (code === "VALIDATION") {
+        set.status = 422;
+        return {
+          success: false,
+          error: "Validation Error",
+          message: error.message,
+        };
+      }
+
+      if (code === "NOT_FOUND") {
+        set.status = 404;
+        return { success: false, error: "Not Found" };
+      }
+
+      set.status = 500;
+      return { success: false, error: "Internal Server Error" };
+    });
+  ```
+
+  ### Authentication
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const authPlugin = new Elysia({ name: "auth" })
+    .derive(async ({ request, set }) => {
+      const token = request.headers.get("Authorization")?.replace("Bearer ", "");
+
+      if (!token) {
+        set.status = 401;
+        throw new Error("Unauthorized");
+      }
+
+      // Verify token (example)
+      const user = await verifyJWT(token);
+
+      if (!user) {
+        set.status = 401;
+        throw new Error("Invalid token");
+      }
+
+      return { user };
+    });
+
+  // Usage in routes:
+  // .get("/protected", ({ user }) => ({ user }))
+  ```
+
+  ### Database Injection
+
+  ```typescript
+  import { Elysia } from "elysia";
+  import { createDatabase, initializeSchema } from "../utils/database";
+
+  const db = createDatabase();
+  initializeSchema(db);
+
+  export const databasePlugin = new Elysia({ name: "database" })
+    .decorate("db", db)
+    .onStop(() => {
+      db.close();
+      console.log("🔌 Database connection closed");
+    });
+  ```
+
+  ### CORS
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const corsPlugin = new Elysia({ name: "cors" })
+    .onBeforeHandle(({ set }) => {
+      set.headers["Access-Control-Allow-Origin"] = "*";
+      set.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS";
+      set.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization";
+    });
+  ```
+
+  ### Request ID
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  export const requestIdPlugin = new Elysia({ name: "request-id" })
+    .derive(() => ({
+      requestId: crypto.randomUUID(),
+    }))
+    .onAfterHandle(({ set, requestId }) => {
+      set.headers["X-Request-ID"] = requestId;
+    });
+  ```
+
+  ### Rate Limiting
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  const requestCounts = new Map<string, { count: number; resetAt: number }>();
+
+  export const rateLimitPlugin = new Elysia({ name: "rate-limit" })
+    .onBeforeHandle(({ request, set }) => {
+      const ip = request.headers.get("x-forwarded-for") || "unknown";
+      const now = Date.now();
+      const limit = 100; // requests per minute
+      const window = 60 * 1000; // 1 minute
+
+      const record = requestCounts.get(ip);
+
+      if (!record || now > record.resetAt) {
+        requestCounts.set(ip, { count: 1, resetAt: now + window });
+        return;
+      }
+
+      if (record.count >= limit) {
+        set.status = 429;
+        throw new Error("Too many requests");
+      }
+
+      record.count++;
+    });
+  ```
+
+  ### Response Caching
+
+  ```typescript
+  import { Elysia } from "elysia";
+
+  const cache = new Map<string, { data: any; expiresAt: number }>();
+
+  export const cachePlugin = new Elysia({ name: "cache" })
+    .derive(({ request, path }) => {
+      const cacheKey = `${request.method}:${path}`;
+      const cached = cache.get(cacheKey);
+
+      if (cached && Date.now() < cached.expiresAt) {
+        return { cachedResponse: cached.data };
+      }
+
+      return { cacheKey, cachedResponse: null };
+    })
+    .onAfterHandle(({ cacheKey, cachedResponse, response }) => {
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+
+      // Cache GET requests for 5 minutes
+      if (cacheKey?.startsWith("GET:")) {
+        cache.set(cacheKey, {
+          data: response,
+          expiresAt: Date.now() + 5 * 60 * 1000,
+        });
+      }
+
+      return response;
+    });
+  ```
+
+  ## Testing Plugins
+
+  ```typescript
+  import { describe, test, expect } from "bun:test";
+  import { Elysia } from "elysia";
+  import { loggerPlugin } from "../src/plugins/logger.plugin";
+
+  describe("LoggerPlugin", () => {
+    test("should log requests", async () => {
+      const app = new Elysia()
+        .use(loggerPlugin)
+        .get("/test", () => "ok");
+
+      const response = await app.handle(new Request("http://localhost/test"));
+      expect(response.status).toBe(200);
+    });
+  });
+  ```
+
+  ## Best Practices
+
+  - Use `derive` for request-scoped data (timing, auth user, request ID)
+  - Use `decorate` for global shared resources (db, config, services)
+  - Keep plugins small and focused on one concern
+  - Use descriptive names (e.g., "logger", "auth", "rate-limit")
+  - Add cleanup logic in `onStop` if needed
+  - Plugins run in registration order, so order matters
+  - Use WeakMap for request-specific data to avoid memory leaks
+  - Document what each plugin does and how to use it
+  - Test plugins in isolation

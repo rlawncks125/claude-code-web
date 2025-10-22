@@ -1,0 +1,196 @@
+name: add-endpoint
+description: Add a new API endpoint to an existing entity
+instructions: |
+  Add a new endpoint to an existing entity following Elysia.js patterns.
+
+  ## Steps
+
+  ### 1. Identify the Entity
+  Determine which entity you're adding the endpoint to (e.g., User, Post, etc.)
+
+  ### 2. Update Model (if needed)
+
+  If the endpoint needs a request body or new validation, add to the model namespace:
+
+  ```typescript
+  // src/models/user.model.ts
+  export namespace UserModel {
+    // ... existing schemas
+
+    export const search = t.Object({
+      query: t.String({ minLength: 1, maxLength: 100 }),
+    });
+    export type Search = typeof search.static;
+  }
+  ```
+
+  ### 3. Add Service Method
+
+  Add a static method to the service class:
+
+  ```typescript
+  // src/services/user.service.ts
+  export abstract class UserService {
+    // ... existing methods
+
+    /**
+     * Search users by name or email
+     */
+    static searchUsers(db: Database, query: string): UserModel.Entity[] {
+      const sql = db.query(
+        "SELECT * FROM users WHERE name LIKE ? OR email LIKE ? LIMIT 50"
+      );
+      const pattern = `%${query}%`;
+      return sql.all(pattern, pattern) as UserModel.Entity[];
+    }
+  }
+  ```
+
+  ### 4. Add Route
+
+  Chain the new route to the existing routes:
+
+  ```typescript
+  // src/routes/user.routes.ts
+  export const userRoutes = new Elysia({ prefix: "/users" })
+    // ... existing routes
+    .post(
+      "/search",
+      ({ db, body }) => UserService.searchUsers(db, body.query),
+      {
+        body: UserModel.search,
+        detail: {
+          tags: ["Users"],
+          summary: "Search users",
+          description: "Search users by name or email",
+        },
+      }
+    );
+  ```
+
+  ### 5. Add Tests
+
+  Add integration test:
+
+  ```typescript
+  // tests/user.test.ts
+  describe("POST /users/search", () => {
+    test("should search users by query", async () => {
+      // Create test users first
+      await app.handle(
+        new Request("http://localhost:3000/api/v1/users", {
+          method: "POST",
+          body: JSON.stringify({ name: "홍길동", email: "hong@test.com" }),
+        })
+      );
+
+      // Test search
+      const response = await app.handle(
+        new Request("http://localhost:3000/api/v1/users/search", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ query: "홍길동" }),
+        })
+      );
+
+      expect(response.status).toBe(200);
+      const data = await response.json();
+      expect(Array.isArray(data)).toBe(true);
+      expect(data.length).toBeGreaterThan(0);
+    });
+  });
+  ```
+
+  Add unit test:
+
+  ```typescript
+  // tests/user.service.test.ts
+  describe("searchUsers", () => {
+    test("should find users by name", () => {
+      UserService.createUser(db, { name: "홍길동", email: "hong@test.com" });
+
+      const results = UserService.searchUsers(db, "홍길동");
+      expect(results.length).toBe(1);
+      expect(results[0].name).toBe("홍길동");
+    });
+
+    test("should return empty array for no matches", () => {
+      const results = UserService.searchUsers(db, "nonexistent");
+      expect(results).toEqual([]);
+    });
+  });
+  ```
+
+  ### 6. Run Tests
+
+  ```bash
+  bun test
+  ```
+
+  ## Common Endpoint Patterns
+
+  ### Pagination
+  ```typescript
+  export const list = t.Object({
+    page: t.Optional(t.Numeric({ minimum: 1, default: 1 })),
+    limit: t.Optional(t.Numeric({ minimum: 1, maximum: 100, default: 20 })),
+  });
+
+  static getWithPagination(db: Database, page: number, limit: number) {
+    const offset = (page - 1) * limit;
+    const query = db.query("SELECT * FROM users LIMIT ? OFFSET ?");
+    return query.all(limit, offset) as UserModel.Entity[];
+  }
+  ```
+
+  ### Filtering
+  ```typescript
+  export const filter = t.Object({
+    status: t.Optional(t.Union([t.Literal("active"), t.Literal("inactive")])),
+    createdAfter: t.Optional(t.String({ format: "date" })),
+  });
+
+  static filterUsers(db: Database, filters: UserModel.Filter) {
+    let sql = "SELECT * FROM users WHERE 1=1";
+    const params: any[] = [];
+
+    if (filters.status) {
+      sql += " AND status = ?";
+      params.push(filters.status);
+    }
+
+    if (filters.createdAfter) {
+      sql += " AND created_at >= ?";
+      params.push(filters.createdAfter);
+    }
+
+    const query = db.query(sql);
+    return query.all(...params) as UserModel.Entity[];
+  }
+  ```
+
+  ### Batch Operations
+  ```typescript
+  export const batchDelete = t.Object({
+    ids: t.Array(t.Numeric({ minimum: 1 })),
+  });
+
+  static deleteMany(db: Database, ids: number[]): void {
+    const placeholders = ids.map(() => "?").join(",");
+    const query = db.query(`DELETE FROM users WHERE id IN (${placeholders})`);
+    query.run(...ids);
+  }
+  ```
+
+  ## Best Practices
+
+  - Keep service methods focused and single-purpose
+  - Use descriptive method names (verb + noun)
+  - Always validate input with Elysia schemas
+  - Return consistent response formats
+  - Add proper error handling
+  - Write tests for both success and error cases
+  - Use query parameters for filters/pagination
+  - Use request body for complex data
+  - Add JSDoc comments to service methods
+  - Consider performance for list/search endpoints (add LIMIT)
