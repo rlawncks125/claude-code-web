@@ -1,27 +1,23 @@
-// Database configuration
+// Database utility functions
 import { Database } from "bun:sqlite";
 
-export interface DatabaseConfig {
-  path: string;
-  enableWAL: boolean;
-}
+/**
+ * Create database connection with WAL mode enabled
+ */
+export function createDatabase(path: string = "./data.db"): Database {
+  const db = new Database(path, { create: true });
 
-export const databaseConfig: DatabaseConfig = {
-  path: process.env.DB_PATH || "./data.db",
-  enableWAL: true,
-};
-
-export function createDatabaseConnection(config: DatabaseConfig): Database {
-  const db = new Database(config.path, { create: true });
-
-  if (config.enableWAL) {
-    db.run("PRAGMA journal_mode = WAL");
-  }
+  // Enable WAL mode for better performance
+  db.run("PRAGMA journal_mode = WAL");
 
   return db;
 }
 
+/**
+ * Initialize database schema (tables and triggers)
+ */
 export function initializeSchema(db: Database): void {
+  // Create users table
   db.run(`
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

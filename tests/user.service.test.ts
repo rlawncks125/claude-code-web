@@ -2,7 +2,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { Database } from "bun:sqlite";
 import { UserService } from "../src/services/user.service";
-import { initializeSchema } from "../src/config/database";
+import { initializeSchema } from "../src/utils/database";
 
 describe("UserService Unit Tests", () => {
   let db: Database;

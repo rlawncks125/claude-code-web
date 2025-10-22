@@ -1,13 +1,37 @@
 // Main application entry point
 import { Elysia } from "elysia";
 // import { swagger } from "@elysiajs/swagger";  // Install with: bun add @elysiajs/swagger
-import { appConfig } from "./config/app";
-import { databasePlugin } from "./plugins/database.plugin";
 import { errorMiddleware } from "./middlewares/error.middleware";
 import { loggerMiddleware } from "./middlewares/logger.middleware";
 import { routes } from "./routes";
+import { createDatabase, initializeSchema } from "./utils/database";
 
-// Create main application
+// ========================================
+// Configuration
+// ========================================
+const appConfig = {
+  port: parseInt(process.env.PORT || "3000"),
+  host: process.env.HOST || "0.0.0.0",
+  env: process.env.NODE_ENV || "development",
+  cors: {
+    origin: process.env.CORS_ORIGIN || "*",
+  },
+  api: {
+    prefix: "/api",
+    version: "v1",
+  },
+} as const;
+
+// ========================================
+// Database Setup
+// ========================================
+const dbPath = process.env.DB_PATH || "./data.db";
+const db = createDatabase(dbPath);
+initializeSchema(db);
+
+// ========================================
+// Application
+// ========================================
 const app = new Elysia()
   // Add Swagger documentation (uncomment when @elysiajs/swagger is installed)
   // .use(
@@ -29,8 +53,12 @@ const app = new Elysia()
   // Add middlewares
   .use(errorMiddleware)
   .use(loggerMiddleware)
-  // Add database plugin
-  .use(databasePlugin)
+  // Inject database instance
+  .decorate("db", db)
+  .onStop(() => {
+    db.close();
+    console.log("🔌 Database connection closed");
+  })
   // Add routes
   .use(routes)
   // Root endpoint
