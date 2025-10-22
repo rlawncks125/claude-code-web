@@ -1,8 +1,8 @@
 // Main application entry point
 import { Elysia } from "elysia";
 // import { swagger } from "@elysiajs/swagger";  // Install with: bun add @elysiajs/swagger
-import { errorMiddleware } from "./middlewares/error.middleware";
-import { loggerMiddleware } from "./middlewares/logger.middleware";
+import { errorPlugin } from "./plugins/error.plugin";
+import { loggerPlugin } from "./plugins/logger.plugin";
 import { routes } from "./routes";
 import { createDatabase, initializeSchema } from "./utils/database";
 
@@ -50,9 +50,9 @@ const app = new Elysia()
   //     path: "/docs",
   //   })
   // )
-  // Add middlewares
-  .use(errorMiddleware)
-  .use(loggerMiddleware)
+  // Add plugins
+  .use(errorPlugin)
+  .use(loggerPlugin)
   // Inject database instance
   .decorate("db", db)
   .onStop(() => {

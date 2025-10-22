@@ -1,7 +1,7 @@
-// Centralized error handling middleware
+// Centralized error handling plugin
 import { Elysia } from "elysia";
 
-export const errorMiddleware = new Elysia({ name: "error-handler" }).onError(
+export const errorPlugin = new Elysia({ name: "error-handler" }).onError(
   ({ code, error, set }) => {
     console.error(`❌ Error [${code}]:`, error);
 
